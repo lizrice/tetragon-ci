@@ -1,0 +1,304 @@
+name: Tetragon setup
+description: Install and configure Tetragon with bundled and local tracing policies
+branding:
+  color: blue
+  icon: shield
+
+inputs:
+  tetragon_version:
+    description: Tetragon version to install
+    required: false
+    default: v1.7.0
+  enforce_policies:
+    description: Set to "false" for monitor mode; any other value enables policy actions such as Sigkill
+    required: false
+    default: "true"
+  debug:
+    description: Enable additional setup logging
+    required: false
+    default: "false"
+  event_stream_timeout:
+    description: Maximum time to keep the background compact event stream open
+    required: false
+    default: 180s
+  policy_ready_timeout:
+    description: Maximum time to wait for tracing policies to finish loading
+    required: false
+    default: 30s
+
+runs:
+  using: composite
+  steps:
+    - name: Install dependencies
+      shell: bash
+      run: |
+        set -euo pipefail
+        sudo apt-get update
+        sudo apt-get install -y curl
+
+    - name: Configure Tetragon
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        sudo mkdir -p /etc/tetragon/tetragon.conf.d
+        sudo mkdir -p /etc/tetragon/tetragon.tp.d
+        echo "true" | sudo tee /etc/tetragon/tetragon.conf.d/enable-process-cred >/dev/null
+        echo "true" | sudo tee /etc/tetragon/tetragon.conf.d/enable-policy-filter >/dev/null
+        echo "unix:///var/run/tetragon/tetragon.sock" | sudo tee /etc/tetragon/tetragon.conf.d/server-address >/dev/null
+
+        if [ "${{ inputs.debug }}" = "true" ]; then
+          echo "debug" | sudo tee /etc/tetragon/tetragon.conf.d/log-level >/dev/null
+        fi
+
+    - name: Install Tetragon tracing policies
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        ENFORCE_INPUT="${{ inputs.enforce_policies }}"
+        if [ "$ENFORCE_INPUT" = "false" ]; then
+          ENFORCE_POLICIES="false"
+        else
+          ENFORCE_POLICIES="true"
+        fi
+        echo "Policy enforcement: ${ENFORCE_POLICIES}"
+
+        policy_state_dir="${RUNNER_TEMP}/tetragon-ci-policies"
+        mkdir -p "$policy_state_dir"
+
+        policy_sources_file="${policy_state_dir}/sources"
+        policy_names_file="${policy_state_dir}/names"
+        : > "$policy_sources_file"
+        : > "$policy_names_file"
+
+        {
+          echo "TETRAGON_CI_ENFORCE_POLICIES=${ENFORCE_POLICIES}"
+          echo "TETRAGON_CI_POLICY_SOURCES=${policy_sources_file}"
+          echo "TETRAGON_CI_POLICY_NAMES=${policy_names_file}"
+        } >> "$GITHUB_ENV"
+
+        select_policy_file() {
+          local source="$1"
+          local label="$2"
+          local policy_file
+          local policy_name
+          local dest
+
+          policy_file="$(basename "$source")"
+          policy_name="${policy_file%.yaml}"
+          policy_name="${policy_name%.yml}"
+          dest="/etc/tetragon/tetragon.tp.d/${policy_name}.yaml"
+
+          if grep -Fxq "$policy_name" "$policy_names_file"; then
+            echo "::error title=Duplicate policy name::Policy ${policy_name} is already selected"
+            exit 1
+          fi
+
+          printf '%s\n' "$policy_name" >> "$policy_names_file"
+
+          if [ "$ENFORCE_POLICIES" = "true" ]; then
+            sudo cp "$source" "$dest"
+            echo "Installed ${policy_file} from ${label} before Tetragon startup with enforcement actions intact"
+          else
+            printf '%s\n' "$source" >> "$policy_sources_file"
+            echo "Queued ${policy_file} from ${label} for monitor-mode loading after Tetragon starts"
+          fi
+        }
+
+        select_policy_dir() {
+          local source_dir="$1"
+          local label="$2"
+          local required="$3"
+          local found="false"
+
+          if [ ! -d "$source_dir" ]; then
+            if [ "$required" = "true" ]; then
+              echo "::error title=Missing policy directory::${source_dir}"
+              exit 1
+            fi
+
+            echo "No ${label} directory found at ${source_dir}"
+            return
+          fi
+
+          while IFS= read -r source; do
+            found="true"
+            select_policy_file "$source" "$label"
+          done < <(find "$source_dir" -maxdepth 1 -type f \( -name '*.yml' -o -name '*.yaml' \) | sort)
+
+          if [ "$found" = "false" ]; then
+            echo "No tracing policy files found in ${source_dir}"
+          fi
+        }
+
+        select_policy_dir "${{ github.action_path }}/policies" "bundled action policies" "true"
+        select_policy_dir "${GITHUB_WORKSPACE}/.github/tetragon-policies" "caller workspace policies" "false"
+
+        if [ ! -s "$policy_names_file" ]; then
+          echo "::error title=No policy files found::Expected at least one bundled tracing policy"
+          exit 1
+        fi
+
+    - name: Install Tetragon
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        VERSION="${{ inputs.tetragon_version }}"
+        curl -fsSLO "https://github.com/cilium/tetragon/releases/download/${VERSION}/tetragon-${VERSION}-amd64.tar.gz"
+        tar -xzf "tetragon-${VERSION}-amd64.tar.gz"
+        cd "tetragon-${VERSION}-amd64"
+        sudo ./install.sh
+
+    - name: Wait for Tetragon to be ready
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        for i in $(seq 1 30); do
+          if systemctl is-active --quiet tetragon && [ -S /var/run/tetragon/tetragon.sock ]; then
+            echo "Tetragon service and socket are present."
+            sleep 3
+            # Check that it has stayed up - it might fail if policies are invalid
+            if systemctl is-active --quiet tetragon && [ -S /var/run/tetragon/tetragon.sock ]; then
+              exit 0
+            fi
+          fi
+          sleep 1
+        done
+
+        echo "::error title=Tetragon not running"
+        echo
+        echo "==== systemctl status tetragon ===="
+        systemctl status tetragon --no-pager || true
+        echo
+        echo "==== ls -la /var/run/tetragon ===="
+        ls -la /var/run/tetragon || true
+        echo
+        echo "==== journalctl -u tetragon ===="
+        sudo journalctl -u tetragon --no-pager -n 200 || true
+        echo
+        echo "Stopping workflow because Tetragon is not healthy"
+        exit 1
+
+    - name: Show Tetragon version
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        sudo tetra --server-address unix:///var/run/tetragon/tetragon.sock version
+
+    - name: Load monitor-mode Tetragon tracing policies
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        if [ "${TETRAGON_CI_ENFORCE_POLICIES:-true}" != "false" ]; then
+          echo "Policy enforcement is enabled; policies were loaded from Tetragon's startup policy directory."
+          exit 0
+        fi
+
+        policy_sources_file="${TETRAGON_CI_POLICY_SOURCES:-}"
+        if [ -z "$policy_sources_file" ] || [ ! -s "$policy_sources_file" ]; then
+          echo "No monitor-mode policies requested."
+          exit 0
+        fi
+
+        while IFS= read -r source; do
+          echo "Loading $(basename "$source") in monitor mode"
+          sudo tetra --server-address unix:///var/run/tetragon/tetragon.sock tracingpolicy add --mode monitor "$source"
+        done < "$policy_sources_file"
+
+    - name: Wait for Tetragon policies to be ready
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        expected_policy_names="${TETRAGON_CI_POLICY_NAMES:-}"
+        if [ -z "$expected_policy_names" ] || [ ! -s "$expected_policy_names" ]; then
+          echo "No tracing policies requested."
+          exit 0
+        fi
+
+        expected_count="$(wc -l < "$expected_policy_names" | tr -d ' ')"
+
+        ready_timeout="${{ inputs.policy_ready_timeout }}"
+        case "$ready_timeout" in
+          *s)
+            ready_timeout="${ready_timeout%s}"
+            ;;
+          *m)
+            ready_timeout="$(( ${ready_timeout%m} * 60 ))"
+            ;;
+          *[!0-9]*|"")
+            echo "::error title=Invalid policy_ready_timeout::Use seconds, such as '30s', or minutes, such as '1m'."
+            exit 1
+            ;;
+        esac
+        deadline=$((SECONDS + ready_timeout))
+        while [ "$SECONDS" -le "$deadline" ]; do
+          policy_list="$(sudo tetra --server-address unix:///var/run/tetragon/tetragon.sock tracingpolicy list 2>&1 || true)"
+          ready_count="$(printf '%s\n' "$policy_list" | awk -v names="$expected_policy_names" '
+            BEGIN {
+              while ((getline name < names) > 0) {
+                wanted[name] = 1
+              }
+            }
+            NR > 1 && $1 ~ /^[0-9]+$/ && ($2 in wanted) {
+              for (i = 3; i <= NF; i++) {
+                if ($i == "enabled" || $i == "loading" || $i == "disabled" || $i == "error" || $i == "unknown") {
+                  seen[$2] = $i
+                  break
+                }
+              }
+            }
+            END {
+              for (name in wanted) {
+                if (seen[name] == "enabled") {
+                  count++
+                }
+              }
+              print count + 0
+            }
+          ')"
+
+          if [ "$ready_count" -eq "$expected_count" ]; then
+            echo "Tetragon tracing policies are ready."
+            printf '%s\n' "$policy_list"
+            exit 0
+          fi
+
+          sleep 2
+        done
+
+        echo "::error title=Tetragon policies not ready::Expected all listed tracing policies to reach state 'enabled'"
+        echo
+        echo "==== expected policy names ===="
+        cat "$expected_policy_names"
+        echo
+        echo "==== tetra tracingpolicy list ===="
+        sudo tetra --server-address unix:///var/run/tetragon/tetragon.sock tracingpolicy list || true
+        echo
+        echo "==== journalctl -u tetragon ===="
+        sudo journalctl -u tetragon --no-pager -n 200 || true
+        exit 1
+
+    - name: Start Tetragon compact event stream
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        : > /tmp/tetra_compact.log
+        (
+          unset RUNNER_TRACKING_ID
+          nohup sudo stdbuf -oL -eL timeout "${{ inputs.event_stream_timeout }}" tetra --server-address unix:///var/run/tetragon/tetragon.sock getevents -o compact > /tmp/tetra_compact.log 2>&1 &
+          echo $! > /tmp/tetra.pid
+        )
+        sleep 3
+
+        if ! kill -0 "$(cat /tmp/tetra.pid)" 2>/dev/null; then
+          echo "::error title=Tetragon compact event stream exited early"
+          cat /tmp/tetra_compact.log || true
+          exit 1
+        fi

@@ -1,0 +1,92 @@
+name: Tetragon report
+description: Print compact events, full JSON events, and Tetragon service logs
+branding:
+  color: blue
+  icon: shield-off
+
+runs:
+  using: composite
+  steps:
+    - name: Show loaded Tetragon policies
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        echo "::group::Show loaded Tetragon policies"
+        sudo tetra --server-address unix:///var/run/tetragon/tetragon.sock tracingpolicy list || true
+        echo "::endgroup::"
+
+    - name: Show compact events
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        echo "::group::Show compact events"
+        if [ -f /tmp/tetra.pid ]; then
+          pid="$(cat /tmp/tetra.pid)"
+          if kill -0 "$pid" 2>/dev/null; then
+            echo "Compact event stream is still running; showing captured output so far."
+          fi
+        fi
+        sleep 1
+
+        echo "==== /tmp/tetra_compact.log ===="
+        if [ -s /tmp/tetra_compact.log ]; then
+          cat /tmp/tetra_compact.log
+
+          total_lines="$(awk 'END { print NR }' /tmp/tetra_compact.log)"
+          shown_lines="$total_lines"
+          if [ "$shown_lines" -gt 30 ]; then
+            shown_lines=30
+          fi
+          remaining_lines=$((total_lines - shown_lines))
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+
+          {
+            echo "## Tetragon compact events"
+            echo
+            echo "Showing the first ${shown_lines} of ${total_lines} compact event lines."
+            echo
+            echo '```text'
+            head -n "$shown_lines" /tmp/tetra_compact.log
+            echo '```'
+            echo
+            if [ "$remaining_lines" -gt 0 ]; then
+              echo "${remaining_lines} more compact event lines are available in the job logs."
+              echo
+            fi
+            echo "[Open this workflow run](${run_url}), expand the Tetragon report step, then open the \`Show compact events\` log group for the full compact log."
+          } >> "$GITHUB_STEP_SUMMARY"
+        else
+          echo "No compact events were captured by the live stream."
+        fi
+        echo "::endgroup::"
+
+    - name: Show full Tetragon JSON events
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        echo "::group::Show full Tetragon JSON events"
+        echo "==== /var/log/tetragon/tetragon.log ===="
+        sudo cat /var/log/tetragon/tetragon.log || true
+        echo "::endgroup::"
+
+    - name: Show Tetragon service logs
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        echo "::group::Show Tetragon service logs"
+        echo "==== journalctl -u tetragon ===="
+        sudo journalctl -u tetragon --no-pager -n 120 || true
+        echo "::endgroup::"
+
+    - name: Stop Tetragon
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        echo "::group::Stop Tetragon"
+        sudo systemctl stop tetragon || true
+        echo "::endgroup::"

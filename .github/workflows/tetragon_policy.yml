@@ -1,0 +1,115 @@
+name: Tetragon CI demo
+
+on:
+  workflow_dispatch:
+    inputs:
+      scenario:
+        description: "Demo scenario to run"
+        type: choice
+        options:
+          - baseline
+          - monitor-exfiltration
+          - enforce-exfiltration
+          - monitor-sensitive-file
+          - enforce-sensitive-file
+        default: baseline
+      tetragon_version:
+        description: "Tetragon release to install"
+        type: string
+        default: "v1.7.0"
+      debug:
+        description: "Additional debug output"
+        type: boolean
+        default: false
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+env:
+  SCENARIO: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.scenario || 'baseline' }}
+  TETRAGON_VERSION: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tetragon_version || 'v1.7.0' }}
+  TETRAGON_DEBUG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.debug || 'false' }}
+
+jobs:
+  tetragon-ci:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Describe selected scenario
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          case "${SCENARIO}" in
+            baseline)
+              enforcement="false"
+              script="./demo/benign-ci.sh"
+              expected="workflow succeeds with bundled policies in monitor mode"
+              ;;
+            monitor-exfiltration)
+              enforcement="false"
+              script="./demo/exfiltrate-secret.sh"
+              expected="workflow succeeds and reports the fake secret exfiltration attempt"
+              ;;
+            enforce-exfiltration)
+              enforcement="true"
+              script="./demo/exfiltrate-secret.sh"
+              expected="workflow fails when Tetragon kills curl"
+              ;;
+            monitor-sensitive-file)
+              enforcement="false"
+              script="./demo/sensitive-file.sh"
+              expected="workflow succeeds and reports the sensitive-file access"
+              ;;
+            enforce-sensitive-file)
+              enforcement="true"
+              script="./demo/sensitive-file.sh"
+              expected="workflow fails when Tetragon kills the sensitive-file read"
+              ;;
+            *)
+              echo "::error title=Unknown scenario::${SCENARIO}"
+              exit 1
+              ;;
+          esac
+
+          {
+            echo "### Tetragon CI demo"
+            echo
+            echo "- Scenario: \`${SCENARIO}\`"
+            echo "- Tetragon version: \`${TETRAGON_VERSION}\`"
+            echo "- Policy enforcement: \`${enforcement}\`"
+            echo "- Policies: all bundled policies in \`.github/actions/tetragon-setup/policies\`"
+            echo "- Script: \`${script}\`"
+            echo "- Expected result: ${expected}"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+          {
+            echo "TETRAGON_ENFORCE=${enforcement}"
+            echo "DEMO_SCRIPT=${script}"
+          } >> "${GITHUB_ENV}"
+
+      - name: Install Tetragon
+        uses: ./.github/actions/tetragon-setup
+        with:
+          tetragon_version: ${{ env.TETRAGON_VERSION }}
+          enforce_policies: ${{ env.TETRAGON_ENFORCE }}
+          debug: ${{ env.TETRAGON_DEBUG }}
+
+      - name: Run demo CI activity
+        shell: bash
+        env:
+          CI_DEMO_SECRET: demo-token-not-a-real-secret
+        run: |
+          set -euo pipefail
+
+          bash "${DEMO_SCRIPT}"
+
+          echo "Tetragon CI demo scenario '${SCENARIO}' completed." >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Report Tetragon activity
+        uses: ./.github/actions/tetragon-report
+        if: ${{ always() }}
