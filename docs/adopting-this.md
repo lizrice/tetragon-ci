@@ -3,7 +3,7 @@
 This is demo code, not a published product or Marketplace action. If you want to reuse it in your own repos there are two options:
 
 - copy the composite actions into another repository and edit them,
-- or refer to the actions from this repository by tag or commit SHA, if this repo is public or shared with the caller.
+- or refer to the actions from this repository by tag or commit SHA, if this repo is public or shared with the caller. You can see an example of this approach in my [containers-from-scratch repo](https://github.com/lizrice/containers-from-scratch)
 
 ## Option 1: copy the pieces
 
