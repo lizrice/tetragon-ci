@@ -8,19 +8,15 @@ runs:
   using: composite
   steps:
     - name: Show loaded Tetragon policies
-      shell: bash
+      shell: bash --noprofile --norc -euo pipefail {0}
       run: |
-        set -euo pipefail
-
         echo "::group::Show loaded Tetragon policies"
         sudo tetra --server-address unix:///var/run/tetragon/tetragon.sock tracingpolicy list || true
         echo "::endgroup::"
 
     - name: Show compact events
-      shell: bash
+      shell: bash --noprofile --norc -euo pipefail {0}
       run: |
-        set -euo pipefail
-
         echo "::group::Show compact events"
         if [ -f /tmp/tetra.pid ]; then
           pid="$(cat /tmp/tetra.pid)"
@@ -63,30 +59,24 @@ runs:
         echo "::endgroup::"
 
     - name: Show full Tetragon JSON events
-      shell: bash
+      shell: bash --noprofile --norc -euo pipefail {0}
       run: |
-        set -euo pipefail
-
         echo "::group::Show full Tetragon JSON events"
         echo "==== /var/log/tetragon/tetragon.log ===="
         sudo cat /var/log/tetragon/tetragon.log || true
         echo "::endgroup::"
 
     - name: Show Tetragon service logs
-      shell: bash
+      shell: bash --noprofile --norc -euo pipefail {0}
       run: |
-        set -euo pipefail
-
         echo "::group::Show Tetragon service logs"
         echo "==== journalctl -u tetragon ===="
         sudo journalctl -u tetragon --no-pager -n 120 || true
         echo "::endgroup::"
 
     - name: Stop Tetragon
-      shell: bash
+      shell: bash --noprofile --norc -euo pipefail {0}
       run: |
-        set -euo pipefail
-
         echo "::group::Stop Tetragon"
         sudo systemctl stop tetragon || true
         echo "::endgroup::"

@@ -16,19 +16,17 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Install linters
-        shell: bash
+        shell: bash --noprofile --norc -euo pipefail {0}
         run: |
-          set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y shellcheck
           go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
 
       - name: Lint GitHub Actions
-        shell: bash
+        shell: bash --noprofile --norc -euo pipefail {0}
         run: |
-          set -euo pipefail
           "$HOME/go/bin/actionlint"
 
       - name: Lint shell scripts
-        shell: bash
+        shell: bash --noprofile --norc -euo pipefail {0}
         run: shellcheck demo/*.sh
