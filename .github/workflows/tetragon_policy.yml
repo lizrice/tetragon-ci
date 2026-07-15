@@ -81,7 +81,7 @@ jobs:
             echo "- Scenario: \`${SCENARIO}\`"
             echo "- Tetragon version: \`${TETRAGON_VERSION}\`"
             echo "- Policy enforcement: \`${enforcement}\`"
-            echo "- Policies: all bundled policies in \`.github/actions/tetragon-setup/policies\`"
+            echo "- Policies: bundled policies plus any local policies in \`.github/tetragon-policies\`"
             echo "- Script: \`${script}\`"
             echo "- Expected result: ${expected}"
           } >> "${GITHUB_STEP_SUMMARY}"

@@ -2,13 +2,14 @@
 
 ## Storyline
 
-The demo has five parts:
+The demo has six parts:
 
 1. Baseline visibility: install Tetragon in a normal CI run and show the captured events.
 2. Fake secret exfiltration in monitor mode: show the suspicious `curl` command and network event.
 3. Fake secret exfiltration in enforcement mode: show Tetragon killing `curl`.
 4. Sensitive-file access as a separate case: show `/etc/shadow` access without hiding it behind the network example.
-5. Consumer repo: show `containers-from-scratch` using the shared actions in a normal build-and-test workflow.
+5. Trivy phase separation: show a networked update phase followed by an enforced no-network scan phase.
+6. Consumer repo: show `containers-from-scratch` using the shared actions in a normal build-and-test workflow.
 
 
 ## Preflight
@@ -18,9 +19,11 @@ The demo has five parts:
 - Open the Actions tab in a browser tab before the demo.
 - Have this repo open locally in a second tab or terminal, especially:
   - `.github/workflows/tetragon_policy.yml`
+  - `.github/workflows/trivy_phase_separation.yml`
   - `.github/actions/tetragon-setup/action.yml`
-  - `.github/actions/tetragon-setup/policies/curl-localhost-only.yml`
+  - `.github/actions/tetragon-setup/policies/curl-network.yml`
   - `.github/actions/tetragon-setup/policies/sensitive-file.yml`
+  - `.github/tetragon-policies/trivy-no-network.yml`
 
 ## Demo 1: baseline visibility
 
@@ -114,7 +117,29 @@ Point at:
 - `Report Tetragon activity`, then the `Show full Tetragon JSON events` log group,
 - event lines for `/usr/bin/head`, `security_file_permission`, or `/etc/shadow`.
 
-## Demo 5: applying the idea to containers-from-scratch
+## Demo 5: Trivy phase separation
+
+GitHub UI:
+
+1. Select **Trivy phase separation demo**.
+2. Select **Run workflow**.
+3. Run it.
+
+Expected result:
+
+- The first job runs Trivy online and uploads the warmed Trivy data as an artifact.
+- The second job downloads the warmed data, installs Tetragon, and runs Trivy with update and telemetry checks disabled.
+- The `trivy-no-network` policy is in enforcement mode.
+- The workflow succeeds because Trivy does not make network connections in the protected scan phase.
+
+Point at:
+
+- `Warm Trivy cache without Tetragon`, showing the expected online Trivy update.
+- `Protected Trivy scan with Tetragon`, showing Tetragon is installed before the protected scan.
+- `Run protected Trivy scan`, showing `Skipping DB update...` and `Skipping update check and metric ping`.
+- `Report Tetragon activity`, showing `trivy-no-network` with zero enforcement events.
+
+## Demo 6: applying the idea to containers-from-scratch
 
 GitHub UI:
 
@@ -129,7 +154,7 @@ Expected result:
 - It installs Tetragon by referencing the setup action from this repo.
 - The same workflow shape runs for main and for pull requests.
 - It builds the Go program while Tetragon is running.
-- It uses the trusted bundled `curl-localhost-only.yml` and `sensitive-file.yml` policies from this repo.
+- It uses the trusted bundled `curl-network.yml` and `sensitive-file.yml` policies from this repo.
 - The report action prints events that show what this ordinary CI job actually did.
 
 Point at:

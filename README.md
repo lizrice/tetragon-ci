@@ -71,9 +71,13 @@ This repo has bundled Tetragon policies:
 
 * `sensitive-file.yml` detects/prevents access to some sensitive files `/etc/shadow` and `/root/.ssh`, with an exception allowing `sudo` to access `/etc/shadow`
 
-* `curl-localhost-only.yml` detects/prevents using `curl` to any address except `127.0.0.1:18080`.
+* `curl-network.yml` detects/prevents using `curl` to make a network connection.
 
 These may or may not be useful protections for other repos.
+
+## Trivy phase separation demo
+
+This repo also has a separate **Trivy phase separation demo** workflow. It runs Trivy once in online mode to warm its vulnerability database and checks, passes that warmed data to a second job, then starts Tetragon and runs Trivy again with updates, version checks, and telemetry disabled. The second phase uses the local `.github/tetragon-policies/trivy-no-network.yml` policy to enforce that Trivy does not make network connections during the protected scan.
 
 ## Static checks
 

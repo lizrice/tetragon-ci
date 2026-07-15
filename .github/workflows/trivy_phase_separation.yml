@@ -1,0 +1,77 @@
+name: Trivy phase separation demo
+
+on:
+  workflow_dispatch:
+    inputs:
+      tetragon_version:
+        description: "Tetragon release to install"
+        type: string
+        default: "v1.7.0"
+      debug:
+        description: "Additional debug output"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  TRIVY_CACHE_DIR: /tmp/trivy-cache
+  TETRAGON_VERSION: ${{ github.event.inputs.tetragon_version || 'v1.7.0' }}
+  TETRAGON_DEBUG: ${{ github.event.inputs.debug || 'false' }}
+
+jobs:
+  warm-trivy-cache:
+    name: Warm Trivy cache without Tetragon
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Warm Trivy cache
+        shell: bash --noprofile --norc -euo pipefail {0}
+        run: |
+          ./demo/trivy-scan.sh warm-cache
+
+      - name: Upload warmed Trivy data
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: trivy-cache
+          path: ${{ env.TRIVY_CACHE_DIR }}
+          if-no-files-found: error
+          retention-days: 1
+
+  protected-trivy-scan:
+    name: Protected Trivy scan with Tetragon
+    needs: warm-trivy-cache
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Download warmed Trivy data
+        uses: actions/download-artifact@v8.0.1
+        with:
+          name: trivy-cache
+          path: ${{ env.TRIVY_CACHE_DIR }}
+
+      - name: Install Trivy binary
+        shell: bash --noprofile --norc -euo pipefail {0}
+        run: |
+          ./demo/trivy-scan.sh install-only
+
+      - name: Install Tetragon
+        uses: ./.github/actions/tetragon-setup
+        with:
+          tetragon_version: ${{ env.TETRAGON_VERSION }}
+          enforce_policies: "true"
+          debug: ${{ env.TETRAGON_DEBUG }}
+
+      - name: Run protected Trivy scan
+        shell: bash --noprofile --norc -euo pipefail {0}
+        run: |
+          ./demo/trivy-scan.sh protected-scan
+
+      - name: Report Tetragon activity
+        uses: ./.github/actions/tetragon-report
+        if: ${{ always() }}

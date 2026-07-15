@@ -43,7 +43,7 @@ What to do:
 
 ### 2. A policy only blocks what it matches
 
-The default network policy, `curl-localhost-only.yml`, is intentionally simple. It allows `curl` to connect to `127.0.0.1:18080`, then kills other `curl` TCP connections in enforcement mode.
+The default network policy, `curl-network.yml`, is intentionally simple. It matches `curl` TCP connections, and kills them in enforcement mode.
 
 That is good for a reference example because it is easy to understand. But it does not block every way to leak a secret.
 
@@ -57,7 +57,7 @@ It does not stop, for example:
 
 What to do:
 
-- Treat `curl-localhost-only.yml` as a demo policy, not a general data-loss prevention policy.
+- Treat `curl-network.yml` as a demo policy, not a general data-loss prevention policy.
 - Observe normal CI behaviour first, then enforce rules for behaviour that should not happen in that part of the workflow.
 - Split jobs or steps so that dependency download, build, test, upload, and deploy phases can have different expectations.
 - Keep secrets out of PR jobs where possible.
@@ -144,10 +144,10 @@ This means the bundled baseline policies are loaded from the referenced `tetrago
 
 ### The default demo policy is understandable
 
-`curl-localhost-only.yml` is specific enough to understand quickly:
+`curl-network.yml` is specific enough to understand quickly:
 
-- local `curl` to `127.0.0.1:18080` is allowed
-- other `curl` TCP connections are killed in enforcement mode
+- `curl` TCP connections are reported in monitor mode
+- `curl` TCP connections are killed in enforcement mode
 
 This is clearer than a broad policy that matches every TCP connection and also catches background runner traffic.
 
@@ -196,7 +196,7 @@ It does not try to catch every possible misconfiguration before running `cp` or 
 
 A policy that matches every `tcp_connect` can kill runner or platform processes in enforcement mode, not just the suspicious demo step.
 
-That is why the current bundled network policy is `curl-localhost-only.yml`, which only talks about `curl` and one allowed local destination.
+That is why the current bundled network policy is `curl-network.yml`, which only talks about `curl`.
 
 ### Manual workflow inputs are for the demo
 
