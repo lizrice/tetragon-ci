@@ -12,9 +12,6 @@ on:
         type: boolean
         default: false
 
-permissions:
-  contents: read
-
 env:
   TRIVY_CACHE_DIR: /tmp/trivy-cache
   TETRAGON_VERSION: ${{ github.event.inputs.tetragon_version || 'v1.7.0' }}
@@ -24,14 +21,35 @@ jobs:
   warm-trivy-cache:
     name: Warm Trivy cache without Tetragon
     runs-on: ubuntu-24.04
+    permissions: {}
 
     steps:
-      - uses: actions/checkout@v5
-
       - name: Warm Trivy cache
         shell: bash --noprofile --norc -euo pipefail {0}
         run: |
-          ./demo/trivy-scan.sh warm-cache
+          echo "::group::Install real Trivy"
+          echo "Installing Trivy from the official apt repository without checking out this repo."
+          sudo apt-get update
+          sudo apt-get install -y wget gnupg
+          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | gpg --dearmor | sudo tee /usr/share/keyrings/trivy.gpg >/dev/null
+          echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb generic main" | sudo tee /etc/apt/sources.list.d/trivy.list >/dev/null
+          sudo apt-get update
+          sudo apt-get install -y trivy
+          trivy --version
+          echo "::endgroup::"
+
+          echo "::group::Run Trivy online against scratch data"
+          echo "Warming Trivy data without giving this phase access to repository source."
+          scan_root="${RUNNER_TEMP}/trivy-warm-root"
+          mkdir -p "${TRIVY_CACHE_DIR}" "$scan_root"
+          printf 'FROM alpine:3.20\nRUN echo warming trivy data\n' > "$scan_root/Dockerfile"
+
+          trivy --debug fs \
+            --scanners vuln,secret,misconfig \
+            --severity HIGH,CRITICAL \
+            --exit-code 0 \
+            "$scan_root"
+          echo "::endgroup::"
 
       - name: Upload warmed Trivy data
         uses: actions/upload-artifact@v7.0.1
@@ -45,6 +63,8 @@ jobs:
     name: Protected Trivy scan with Tetragon
     needs: warm-trivy-cache
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
 
     steps:
       - uses: actions/checkout@v5
