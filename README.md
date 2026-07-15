@@ -77,7 +77,7 @@ These may or may not be useful protections for other repos.
 
 ## Trivy phase separation demo
 
-This repo also has a separate **Trivy phase separation demo** workflow. It runs Trivy once in online mode to warm its vulnerability database and checks, passes that warmed data to a second job, then starts Tetragon and runs Trivy again with updates, version checks, and telemetry disabled. The second phase uses the local `.github/tetragon-policies/trivy-no-network.yml` policy to enforce that Trivy does not make network connections during the protected scan.
+This repo also has a separate **Trivy phase separation demo** workflow. It downloads the Trivy databases in one job, passes that warmed data to a second job, then starts Tetragon and runs Trivy again with updates, version checks, and telemetry disabled. The second phase uses the local `.github/tetragon-policies/trivy-no-network.yml` policy to enforce that Trivy does not make network connections during the protected scan.
 
 ## Static checks
 

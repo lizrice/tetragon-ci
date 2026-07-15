@@ -127,14 +127,14 @@ GitHub UI:
 
 Expected result:
 
-- The first job runs Trivy online and uploads the warmed Trivy data as an artifact.
+- The first job downloads the Trivy databases and uploads the warmed Trivy data as an artifact.
 - The second job downloads the warmed data, installs Tetragon, and runs Trivy with update and telemetry checks disabled.
 - The `trivy-no-network` policy is in enforcement mode.
 - The workflow succeeds because Trivy does not make network connections in the protected scan phase.
 
 Point at:
 
-- `Warm Trivy cache without Tetragon`, showing the expected online Trivy update.
+- `Warm Trivy cache without Tetragon`, showing the expected Trivy database download.
 - `Protected Trivy scan with Tetragon`, showing Tetragon is installed before the protected scan.
 - `Run protected Trivy scan`, showing `Skipping DB update...` and `Skipping update check and metric ping`.
 - `Report Tetragon activity`, showing `trivy-no-network` with zero enforcement events.

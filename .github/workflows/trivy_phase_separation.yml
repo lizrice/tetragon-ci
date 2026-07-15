@@ -38,17 +38,13 @@ jobs:
           trivy --version
           echo "::endgroup::"
 
-          echo "::group::Run Trivy online against scratch data"
-          echo "Warming Trivy data without giving this phase access to repository source."
-          scan_root="${RUNNER_TEMP}/trivy-warm-root"
-          mkdir -p "${TRIVY_CACHE_DIR}" "$scan_root"
-          printf 'FROM alpine:3.20\nRUN echo warming trivy data\n' > "$scan_root/Dockerfile"
+          echo "::group::Download Trivy databases"
+          echo "Downloading Trivy data without checking out this repo or scanning source."
+          download_root="${RUNNER_TEMP}/trivy-download-root"
+          mkdir -p "${TRIVY_CACHE_DIR}" "$download_root"
 
-          trivy --debug fs \
-            --scanners vuln,secret,misconfig \
-            --severity HIGH,CRITICAL \
-            --exit-code 0 \
-            "$scan_root"
+          trivy --debug fs --download-db-only "$download_root"
+          trivy --debug fs --download-java-db-only "$download_root"
           echo "::endgroup::"
 
       - name: Upload warmed Trivy data
